@@ -40,7 +40,14 @@
   #timer.low { color: var(--red); animation: pulse 0.5s ease-in-out infinite alternate; }
   @keyframes pulse { to { transform: scale(1.12); } }
 
-  #bottom { left: 50%; bottom: 16px; transform: translateX(-50%); font-size: 13px; }
+  #bottom {
+    left: 50%; bottom: 16px; transform: translateX(-50%);
+    width: min(360px, calc(100% - 32px));
+    display: flex; align-items: center; gap: 10px; font-size: 13px;
+  }
+  #boostBar { flex: 1; height: 10px; border-radius: 6px; background: rgba(23, 50, 77, 0.15); overflow: hidden; }
+  #boostFill { height: 100%; width: 100%; background: linear-gradient(90deg, #4fd8ff, #2b8cf0); border-radius: 6px; }
+  #speed { min-width: 64px; text-align: right; }
 
   #popups { position: absolute; left: 50%; top: 38%; }
   .popup {
@@ -80,6 +87,14 @@
     box-shadow: 0 6px 18px rgba(255, 130, 0, 0.4);
   }
   button.start:active { transform: scale(0.97); }
+
+  #boostBtn {
+    position: fixed; right: 18px; bottom: 70px; width: 76px; height: 76px; border-radius: 50%;
+    border: 0; font: inherit; font-weight: 800; color: #fff;
+    background: linear-gradient(135deg, #4fd8ff, #2b8cf0); box-shadow: 0 6px 18px rgba(30, 120, 220, 0.4);
+    display: none; touch-action: none;
+  }
+  @media (pointer: coarse) { #boostBtn.show { display: block; } }
 </style>
 </head>
 <body>
@@ -97,10 +112,15 @@
     <div id="lives">♥</div>
     <div class="sub" id="best">최고 0</div>
   </div>
-  <div class="panel" id="bottom"><span id="speed">0 km/h</span></div>
+  <div class="panel" id="bottom">
+    <span>부스트</span>
+    <div id="boostBar"><div id="boostFill"></div></div>
+    <span id="speed">0 km/h</span>
+  </div>
   <div id="popups"></div>
 </div>
 <div id="flash"></div>
+<button id="boostBtn">부스트</button>
 
 <div id="overlay">
   <div class="card" id="card"></div>
@@ -390,6 +410,9 @@ let nextSpawnZ = -120;
 const difficulty = () => clamp(state.time / 120, 0, 1);
 // 빨간 링과 일반(황금) 링을 2:8 비율로 생성
 const randomRingKind = () => Math.random() < 0.2 ? 'red' : 'gold';
+// 기본 배치는 한 구간당 평균 1.42개(단일 링 0.62 + 연속 링 0.16×5)의 링을 만든다.
+// 구간 사이에 57% 확률로 링을 하나 더 넣어 평균 1.99개, 즉 1.4배로 늘린다.
+const EXTRA_RING_CHANCE = 0.57;
 function spawnAhead() {
   while (nextSpawnZ > state.z - 750) {
     const z = nextSpawnZ;
@@ -417,7 +440,12 @@ function spawnAhead() {
       const x = rand(-55, 55), zz = z - 20;
       spawnBalloon(x, pickY(x, zz), zz);
     }
-    nextSpawnZ -= rand(45, 80) - difficulty() * 18;
+    const gap = rand(45, 80) - difficulty() * 18;
+    if (Math.random() < EXTRA_RING_CHANCE) {
+      const zz = nextSpawnZ - gap / 2, x = rand(-50, 50);
+      spawnRing(x, pickY(x, zz), zz, randomRingKind());
+    }
+    nextSpawnZ -= gap;
   }
 }
 function clearObjects() {
@@ -561,8 +589,9 @@ if (IS_MOBILE) {
 
 // ---------- 입력 ----------
 const keys = new Set();
-let mouse = { x: 0, y: 0, active: false };
+let mouse = { x: 0, y: 0, active: false, down: false };
 let touch = { id: null, sx: 0, sy: 0, x: 0, y: 0 };
+let boostBtnHeld = false;
 
 addEventListener('keydown', e => {
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
@@ -587,14 +616,20 @@ canvas.addEventListener('pointermove', e => {
   }
 });
 canvas.addEventListener('pointerdown', e => {
-  if (e.pointerType === 'mouse') return;
+  if (e.pointerType === 'mouse') { mouse.down = true; return; }
   if (touch.id === null) { touch.id = e.pointerId; touch.sx = e.clientX; touch.sy = e.clientY; touch.x = touch.y = 0; }
 });
 const endPointer = e => {
+  if (e.pointerType === 'mouse') mouse.down = false;
   if (e.pointerId === touch.id) { touch.id = null; touch.x = touch.y = 0; }
 };
 canvas.addEventListener('pointerup', endPointer);
 canvas.addEventListener('pointercancel', endPointer);
+
+const boostBtn = document.getElementById('boostBtn');
+boostBtn.addEventListener('pointerdown', e => { e.preventDefault(); boostBtnHeld = true; });
+boostBtn.addEventListener('pointerup', () => boostBtnHeld = false);
+boostBtn.addEventListener('pointercancel', () => boostBtnHeld = false);
 
 function readInput() {
   const kx = (keys.has('ArrowRight') || keys.has('KeyD') ? 1 : 0) - (keys.has('ArrowLeft') || keys.has('KeyA') ? 1 : 0);
@@ -607,15 +642,16 @@ function readInput() {
     ix = clamp(dz(mouse.x) * 1.6, -1, 1);
     iy = clamp(dz(mouse.y) * 1.6, -1, 1);
   }
-  return { ix, iy };
+  const boost = keys.has('Space') || keys.has('ShiftLeft') || keys.has('ShiftRight') || mouse.down || boostBtnHeld;
+  return { ix, iy, boost };
 }
 
 // ---------- 게임 상태 ----------
 let mode = 'title'; // title | play | paused | over
-const TIME_LIMIT = 10, RING_TIME_BONUS = 0.5, RED_RING_PENALTY = 10, MAX_LIVES = 1;
+const TIME_LIMIT = 10, RING_TIME_BONUS = 1, RED_RING_PENALTY = 10, MAX_LIVES = 1;
 const state = {
   x: 0, y: 30, z: 0, vx: 0, vy: 0, speed: 45,
-  lives: MAX_LIVES, ringPts: 0, combo: 0,
+  boost: 100, boosting: false, lives: MAX_LIVES, ringPts: 0, combo: 0,
   invuln: 0, time: 0, timeLeft: TIME_LIMIT, startZ: 0, shake: 0,
 };
 let best = 0;
@@ -624,7 +660,7 @@ try { best = Number(localStorage.getItem('paperPlaneBest')) || 0; } catch { /* �
 const $ = id => document.getElementById(id);
 const ui = {
   score: $('score'), dist: $('dist'), timer: $('timer'), combo: $('combo'), lives: $('lives'), best: $('best'),
-  speed: $('speed'), popups: $('popups'), flash: $('flash'),
+  boostFill: $('boostFill'), speed: $('speed'), popups: $('popups'), flash: $('flash'),
   overlay: $('overlay'), card: $('card'), hud: $('hud'),
 };
 const totalScore = () => state.ringPts + Math.floor((state.startZ - state.z) / 10);
@@ -645,6 +681,7 @@ function showTitle() {
     <p>제한시간은 단 <b>${TIME_LIMIT}초</b>, 목숨은 <b>${MAX_LIVES}개</b>!<br>열기구와 땅에 부딪히면 바로 끝나요.</p>
     <div class="keys">
       <div><b>←</b><b>→</b><b>↑</b><b>↓</b> 또는 <b>WASD</b> / 마우스 위치로 조종</div>
+      <div><b>Space</b> / 마우스 클릭 &nbsp;부스트 (모바일: 부스트 버튼)</div>
       <div><b>P</b> 일시정지${IS_MOBILE ? '' : ' &nbsp;·&nbsp; <b>M</b> 음악 끄기/켜기'}</div>
       <div>모바일: 화면을 드래그해 조종</div>
       <div>🟡 황금 링: <b>+${RING_TIME_BONUS}초</b>, 연속 통과 시 콤보</div>
@@ -662,15 +699,16 @@ function startGame() {
   startBgm();
   clearObjects();
   Object.assign(state, {
-    x: 0, vx: 0, vy: 0, speed: 45, lives: MAX_LIVES, ringPts: 0, combo: 0,
+    x: 0, vx: 0, vy: 0, speed: 45, boost: 100, lives: MAX_LIVES, ringPts: 0, combo: 0,
     invuln: 1.5, time: 0, timeLeft: TIME_LIMIT, startZ: state.z, shake: 0,
   });
   state.y = Math.max(state.y, groundTop(state.x, state.z) + 25);
   nextSpawnZ = state.z - 150;
-  mouse.active = false; // 시작 버튼 위치로 조종되지 않도록
+  mouse.active = mouse.down = false; // 시작 버튼 위치로 조종되지 않도록
   mode = 'play';
   ui.overlay.classList.add('hidden');
   ui.hud.style.visibility = 'visible';
+  boostBtn.classList.add('show');
   updateLives();
 }
 
@@ -682,6 +720,7 @@ function gameOver(reason) {
     best = score;
     try { localStorage.setItem('paperPlaneBest', String(best)); } catch { /* 저장소 사용 불가 */ }
   }
+  boostBtn.classList.remove('show');
   tone(330, 0.5, 'triangle', 0.15, 110);
   ui.card.innerHTML = `
     <h1>${reason === 'time' ? '⏰ 시간 종료!' : '💥 추락!'}</h1>
@@ -733,7 +772,7 @@ function update(dt) {
     // 타이틀 화면 자동 비행
     const t = performance.now() / 1000;
     const target = groundTop(state.x, state.z - 40) + 30;
-    input = { ix: Math.sin(t * 0.45) * 0.5 - state.x / 120, iy: clamp((target - state.y) / 15, -1, 1) };
+    input = { ix: Math.sin(t * 0.45) * 0.5 - state.x / 120, iy: clamp((target - state.y) / 15, -1, 1), boost: false };
   }
 
   state.time += dt;
@@ -752,7 +791,11 @@ function update(dt) {
 
 
   const base = playing ? Math.min(45 + state.time * 0.4, 95) : 45;
-  const targetSpeed = base - state.vy * 0.5;
+  state.boosting = input.boost && state.boost > 0;
+  if (state.boosting) state.boost = Math.max(0, state.boost - 32 * dt);
+  else state.boost = Math.min(100, state.boost + 5 * dt);
+
+  const targetSpeed = base * (state.boosting ? 1.7 : 1) - state.vy * 0.5;
   state.speed += (targetSpeed - state.speed) * (1 - Math.exp(-dt * 1.6));
 
   const prevZ = state.z;
@@ -906,6 +949,7 @@ function update(dt) {
     ui.dist.textContent = `${Math.floor(state.startZ - state.z).toLocaleString()} m`;
     ui.combo.textContent = state.combo > 1 ? `콤보 x${state.combo}` : '';
     ui.best.textContent = `최고 ${best.toLocaleString()}`;
+    ui.boostFill.style.width = `${state.boost}%`;
     ui.speed.textContent = `${Math.round(state.speed * 1.2)} km/h`;
   }
 }
