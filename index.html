@@ -36,6 +36,10 @@
   .sub { font-size: 13px; opacity: 0.75; margin-top: 4px; font-weight: 600; }
   #combo { color: #e08a00; font-size: 15px; margin-top: 4px; min-height: 18px; }
   #lives { font-size: 24px; color: var(--red); letter-spacing: 2px; }
+  #timerPanel { top: 14px; left: 50%; transform: translateX(-50%); text-align: center; min-width: 84px; }
+  #timer { font-size: 28px; line-height: 1; font-variant-numeric: tabular-nums; }
+  #timer.low { color: var(--red); animation: pulse 0.5s ease-in-out infinite alternate; }
+  @keyframes pulse { to { transform: scale(1.12); } }
 
   #bottom {
     left: 50%; bottom: 16px; transform: translateX(-50%);
@@ -100,6 +104,10 @@
     <div id="score">0</div>
     <div class="sub" id="dist">0 m</div>
     <div id="combo"></div>
+  </div>
+  <div class="panel" id="timerPanel">
+    <div id="timer">30.0</div>
+    <div class="sub">남은 시간</div>
   </div>
   <div class="panel" id="tr">
     <div id="lives">♥♥♥</div>
@@ -369,6 +377,8 @@ function burst(p, color, count, vz) {
 const ringGeo = new THREE.TorusGeometry(5, 0.45, 10, 36);
 const goldMat = new THREE.MeshPhongMaterial({ color: 0xffc83d, emissive: 0xb07000, emissiveIntensity: 0.5, shininess: 120 });
 const blueMat = new THREE.MeshPhongMaterial({ color: 0x5fe0ff, emissive: 0x0b6fa8, emissiveIntensity: 0.6, shininess: 120 });
+const redMat = new THREE.MeshPhongMaterial({ color: 0xff3b3b, emissive: 0xa00010, emissiveIntensity: 0.7, shininess: 120 });
+const RING_MATS = { gold: goldMat, blue: blueMat, red: redMat };
 const balloonGeo = new THREE.SphereGeometry(4, 18, 14);
 const balloonConeGeo = new THREE.ConeGeometry(2.6, 3.2, 18).rotateX(Math.PI).translate(0, -4.6, 0);
 const basketGeo = new THREE.BoxGeometry(1.8, 1.3, 1.8).translate(0, -7.6, 0);
@@ -378,11 +388,11 @@ const bandMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
 const BALLOON_COLORS = [0xff5a5a, 0xffa53d, 0x7b5cff, 0x2fcf87, 0xff6ec7].map(c => new THREE.MeshLambertMaterial({ color: c, flatShading: true }));
 
 let objects = [];
-function spawnRing(x, y, z, blue) {
-  const mesh = new THREE.Mesh(ringGeo, blue ? blueMat : goldMat);
+function spawnRing(x, y, z, kind) {
+  const mesh = new THREE.Mesh(ringGeo, RING_MATS[kind]);
   mesh.position.set(x, y, z);
   scene.add(mesh);
-  objects.push({ type: 'ring', blue, mesh, x, y, z, spin: rand(-1, 1) });
+  objects.push({ type: 'ring', kind, mesh, x, y, z, spin: rand(-1, 1) });
 }
 function spawnBalloon(x, y, z) {
   const g = new THREE.Group();
@@ -404,19 +414,17 @@ function spawnAhead() {
   while (nextSpawnZ > state.z - 750) {
     const z = nextSpawnZ;
     const r = Math.random();
-    if (r < 0.42) {
+    if (r < 0.62) {
+      const kind = r < 0.40 ? 'gold' : r < 0.50 ? 'blue' : 'red';
       const x = rand(-50, 50);
-      spawnRing(x, pickY(x, z), z, false);
-    } else if (r < 0.54) {
-      const x = rand(-50, 50);
-      spawnRing(x, pickY(x, z), z, true);
-    } else if (r < 0.72) {
+      spawnRing(x, pickY(x, z), z, kind);
+    } else if (r < 0.78) {
       // 곡선을 따라 이어지는 링
       const x0 = rand(-40, 40), y0 = pickY(x0, z), dir = Math.random() < 0.5 ? -1 : 1, n = 5;
       for (let i = 0; i < n; i++) {
         const zz = z - i * 22, xx = x0 + Math.sin(i * 0.8) * 10 * dir;
         const yy = Math.max(y0 + Math.sin(i * 0.6) * 6, groundTop(xx, zz) + 10);
-        spawnRing(xx, yy, zz, false);
+        spawnRing(xx, yy, zz, 'gold');
       }
       nextSpawnZ -= n * 22;
     } else {
@@ -457,6 +465,86 @@ function tone(freq, dur, type = 'sine', vol = 0.15, slideTo) {
   o.start(t); o.stop(t + dur);
 }
 
+// ---------- 배경음악 ----------
+// 페촐트(바흐 『안나 막달레나 노트』) 「미뉴에트 G장조」(1725, 퍼블릭 도메인)를
+// 녹음 파일 없이 Web Audio로 직접 연주하므로 저작권 문제가 없다.
+// 표기: '음이름옥타브:박자' (q=4분음표, e=8분음표, h=2분음표, d=점2분음표)
+const MELODY = `
+  D5:q G4:e A4:e B4:e C5:e | D5:q G4:q G4:q | E5:q C5:e D5:e E5:e F#5:e | G5:q G4:q G4:q
+  C5:q D5:e C5:e B4:e A4:e | B4:q C5:e B4:e A4:e G4:e | F#4:q G4:e A4:e B4:e G4:e | A4:d
+  D5:q G4:e A4:e B4:e C5:e | D5:q G4:q G4:q | E5:q C5:e D5:e E5:e F#5:e | G5:q G4:q G4:q
+  C5:q D5:e C5:e B4:e A4:e | B4:q C5:e B4:e A4:e G4:e | A4:q B4:e A4:e G4:e F#4:e | G4:d
+  B5:q G5:e A5:e B5:e G5:e | A5:q D5:e E5:e F#5:e D5:e | G5:q E5:e F#5:e G5:e D5:e | C#5:q B4:e C#5:e A4:q
+  A4:e B4:e C#5:e D5:e E5:e F#5:e | G5:q F#5:q E5:q | F#5:q A4:q C#5:q | D5:d
+  D5:q G4:e F#4:e G4:q | E5:q G4:e F#4:e G4:q | D5:q C5:q B4:q | A4:e G4:e F#4:e G4:e A4:q
+  D4:e E4:e F#4:e G4:e A4:e B4:e | C5:q B4:q A4:q | B4:e D5:e G4:q F#4:q | G4:d`;
+const BASS = `
+  G3:h A3:q | B3:d | C4:d | B3:d | A3:d | G3:d | D4:q B3:q G3:q | D4:q D3:e C4:e B3:e A3:e
+  G3:h A3:q | B3:d | C4:d | B3:d | A3:d | G3:d | C4:q D4:q D3:q | G3:h G2:q
+  G3:d | F#3:d | E3:h G3:q | A3:h A2:q | A3:d | B3:q D4:q C#4:q | D4:q F#3:q A3:q | D4:q D3:q C4:q
+  B3:d | C4:d | B3:q A3:q G3:q | D3:d | D3:d | D3:d | G3:q D3:q D3:q | G2:d`;
+const BEAT = { e: 0.5, q: 1, h: 2, d: 3 };
+const SEMI = { C: 0, 'C#': 1, D: 2, 'D#': 3, E: 4, F: 5, 'F#': 6, G: 7, 'G#': 8, A: 9, 'A#': 10, B: 11 };
+function parseScore(text) {
+  let beat = 0;
+  return text.split(/[\s|]+/).filter(Boolean).map(tok => {
+    const [, name, oct, len] = tok.match(/^([A-G]#?)(\d):(\w)$/);
+    const midi = 12 * (Number(oct) + 1) + SEMI[name];
+    const note = { start: beat, len: BEAT[len], freq: 440 * Math.pow(2, (midi - 69) / 12) };
+    beat += note.len;
+    return note;
+  });
+}
+const BGM_TRACKS = [
+  { notes: parseScore(MELODY), type: 'triangle', vol: 0.11 },
+  { notes: parseScore(BASS), type: 'sine', vol: 0.09 },
+];
+const BGM_BEATS = BGM_TRACKS[0].notes.reduce((s, n) => s + n.len, 0);
+const BGM_SPB = 60 / 132; // 템포 132 BPM
+
+const bgm = { gain: null, timer: null, loopStart: 0, next: [0, 0], muted: false };
+function playNote(track, n, t) {
+  const o = audio.createOscillator(), g = audio.createGain();
+  const dur = n.len * BGM_SPB;
+  o.type = track.type;
+  o.frequency.value = n.freq;
+  // 하프시코드처럼 빠르게 울리고 서서히 사라지는 소리
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(track.vol, t + 0.01);
+  g.gain.exponentialRampToValueAtTime(track.vol * 0.3, t + Math.min(dur, 0.35));
+  g.gain.exponentialRampToValueAtTime(0.0005, t + dur * 0.98);
+  o.connect(g).connect(bgm.gain);
+  o.start(t); o.stop(t + dur);
+}
+function scheduleBgm() {
+  const horizon = audio.currentTime + 0.2;
+  BGM_TRACKS.forEach((track, ti) => {
+    while (true) {
+      let i = bgm.next[ti];
+      const loops = Math.floor(i / track.notes.length);
+      const n = track.notes[i % track.notes.length];
+      const t = bgm.loopStart + (loops * BGM_BEATS + n.start) * BGM_SPB;
+      if (t > horizon) break;
+      if (t >= audio.currentTime - 0.05) playNote(track, n, t);
+      bgm.next[ti] = i + 1;
+    }
+  });
+}
+function startBgm() {
+  if (!audio || bgm.timer) return;
+  bgm.gain = audio.createGain();
+  bgm.gain.gain.value = bgm.muted ? 0 : 1;
+  bgm.gain.connect(audio.destination);
+  bgm.loopStart = audio.currentTime + 0.1;
+  bgm.next = [0, 0];
+  bgm.timer = setInterval(scheduleBgm, 50);
+  scheduleBgm();
+}
+function toggleMute() {
+  bgm.muted = !bgm.muted;
+  if (bgm.gain) bgm.gain.gain.setTargetAtTime(bgm.muted ? 0 : 1, audio.currentTime, 0.05);
+}
+
 // ---------- 입력 ----------
 const keys = new Set();
 let mouse = { x: 0, y: 0, active: false, down: false };
@@ -469,6 +557,7 @@ addEventListener('keydown', e => {
   mouse.active = false;
   if ((e.code === 'Space' || e.code === 'Enter') && (mode === 'title' || mode === 'over')) startGame();
   if (e.code === 'KeyP' || e.code === 'Escape') togglePause();
+  if (e.code === 'KeyM') toggleMute();
 });
 addEventListener('keyup', e => keys.delete(e.code));
 addEventListener('blur', () => keys.clear());
@@ -517,17 +606,18 @@ function readInput() {
 
 // ---------- 게임 상태 ----------
 let mode = 'title'; // title | play | paused | over
+const TIME_LIMIT = 30, RING_TIME_BONUS = 2, RED_RING_PENALTY = 10;
 const state = {
   x: 0, y: 30, z: 0, vx: 0, vy: 0, speed: 45,
   boost: 100, boosting: false, lives: 3, ringPts: 0, combo: 0,
-  invuln: 0, time: 0, startZ: 0, shake: 0,
+  invuln: 0, time: 0, timeLeft: TIME_LIMIT, startZ: 0, shake: 0,
 };
 let best = 0;
 try { best = Number(localStorage.getItem('paperPlaneBest')) || 0; } catch { /* 저장소 사용 불가 */ }
 
 const $ = id => document.getElementById(id);
 const ui = {
-  score: $('score'), dist: $('dist'), combo: $('combo'), lives: $('lives'), best: $('best'),
+  score: $('score'), dist: $('dist'), timer: $('timer'), combo: $('combo'), lives: $('lives'), best: $('best'),
   boostFill: $('boostFill'), speed: $('speed'), popups: $('popups'), flash: $('flash'),
   overlay: $('overlay'), card: $('card'), hud: $('hud'),
 };
@@ -546,12 +636,14 @@ function popup(text, color) {
 function showTitle() {
   ui.card.innerHTML = `
     <h1>✈️ 종이비행기 하늘여행</h1>
-    <p>구름 사이를 날며 황금 링을 통과하세요!<br>열기구와 땅에 부딪히지 않게 조심하세요.</p>
+    <p>제한시간은 <b>30초</b>! 링을 통과할 때마다 <b>+2초</b>가 늘어나요.<br>열기구와 땅에 부딪히지 않게 조심하세요.</p>
     <div class="keys">
       <div><b>←</b><b>→</b><b>↑</b><b>↓</b> 또는 <b>WASD</b> / 마우스 위치로 조종</div>
       <div><b>Space</b> / 마우스 클릭 &nbsp;부스트</div>
-      <div><b>P</b> 일시정지 &nbsp;·&nbsp; 모바일: 화면을 드래그해 조종</div>
+      <div><b>P</b> 일시정지 &nbsp;·&nbsp; <b>M</b> 음악 끄기/켜기</div>
+      <div>모바일: 화면을 드래그해 조종</div>
       <div>🟡 황금 링: 연속 통과 시 콤보 &nbsp; 🔵 파란 링: 부스트 충전</div>
+      <div>🔴 빨간 링: 함정! 통과하면 <b>-10초</b></div>
     </div>
     <button class="start" id="startBtn">비행 시작</button>`;
   $('startBtn').onclick = startGame;
@@ -562,10 +654,11 @@ function showTitle() {
 function startGame() {
   initAudio();
   if (audio && audio.state === 'suspended') audio.resume();
+  startBgm();
   clearObjects();
   Object.assign(state, {
     x: 0, vx: 0, vy: 0, speed: 45, boost: 100, lives: 3, ringPts: 0, combo: 0,
-    invuln: 1.5, time: 0, startZ: state.z, shake: 0,
+    invuln: 1.5, time: 0, timeLeft: TIME_LIMIT, startZ: state.z, shake: 0,
   });
   state.y = Math.max(state.y, groundTop(state.x, state.z) + 25);
   nextSpawnZ = state.z - 150;
@@ -577,7 +670,7 @@ function startGame() {
   updateLives();
 }
 
-function gameOver() {
+function gameOver(reason) {
   mode = 'over';
   const score = totalScore();
   const isBest = score > best;
@@ -588,7 +681,7 @@ function gameOver() {
   boostBtn.classList.remove('show');
   tone(330, 0.5, 'triangle', 0.15, 110);
   ui.card.innerHTML = `
-    <h1>비행 종료</h1>
+    <h1>${reason === 'time' ? '⏰ 시간 종료!' : '💥 추락!'}</h1>
     <div class="big">${score.toLocaleString()}</div>
     <p>${isBest ? '🎉 새로운 최고 기록!' : `최고 기록 ${best.toLocaleString()}`}</p>
     <p>비행 거리 ${Math.floor(state.startZ - state.z).toLocaleString()} m</p>
@@ -600,11 +693,13 @@ function gameOver() {
 function togglePause() {
   if (mode === 'play') {
     mode = 'paused';
+    if (audio) audio.suspend();
     ui.card.innerHTML = `<h1>일시정지</h1><p>P 또는 Esc를 눌러 계속하기</p><button class="start" id="startBtn">계속하기</button>`;
     $('startBtn').onclick = togglePause;
     ui.overlay.classList.remove('hidden');
   } else if (mode === 'paused') {
     mode = 'play';
+    if (audio) audio.resume();
     ui.overlay.classList.add('hidden');
   }
 }
@@ -623,7 +718,7 @@ function damage() {
   ui.flash.style.opacity = '0.45';
   requestAnimationFrame(() => { ui.flash.style.transition = 'opacity 0.5s'; ui.flash.style.opacity = '0'; });
   tone(160, 0.35, 'sawtooth', 0.12, 60);
-  if (state.lives <= 0) gameOver();
+  if (state.lives <= 0) gameOver('crash');
 }
 
 // ---------- 업데이트 ----------
@@ -639,7 +734,16 @@ function update(dt) {
   }
 
   state.time += dt;
-  const k = 1 - Math.exp(-dt * 3.2);
+  if (playing) {
+    state.timeLeft -= dt;
+    if (state.timeLeft <= 0) {
+      state.timeLeft = 0;
+      ui.timer.textContent = '0.0';
+      gameOver('time');
+      return;
+    }
+  }
+  const k =1 - Math.exp(-dt * 3.2);
   state.vx += (input.ix * 36 - state.vx) * k;
   state.vy += (input.iy * 26 - state.vy) * k;
 
@@ -697,21 +801,34 @@ function update(dt) {
         const d = Math.hypot(state.x - o.x, state.y - o.y);
         if (playing && d < 4.7) {
           o.collected = true; o.anim = 0;
-          if (o.blue) {
+          if (o.kind === 'red') {
+            // 함정 링: 시간 감소 (0 이하가 되면 다음 프레임에 시간 종료 처리)
+            state.timeLeft -= RED_RING_PENALTY;
+            state.combo = 0;
+            state.shake = 0.3;
+            popup(`⏱-${RED_RING_PENALTY}초`, '#ff4d5e');
+            tone(220, 0.4, 'square', 0.1, 90);
+            burst(o.mesh.position, 0xff3b3b, 30, -state.speed * 0.7);
+            ui.flash.style.transition = 'none';
+            ui.flash.style.opacity = '0.3';
+            requestAnimationFrame(() => { ui.flash.style.transition = 'opacity 0.5s'; ui.flash.style.opacity = '0'; });
+          } else if (o.kind === 'blue') {
+            state.timeLeft += RING_TIME_BONUS;
             state.boost = Math.min(100, state.boost + 40);
             state.ringPts += 5;
-            popup('부스트 +40', '#5fe0ff');
+            popup(`부스트 +40  ⏱+${RING_TIME_BONUS}초`, '#5fe0ff');
             tone(660, 0.25, 'sine', 0.15, 1320);
             burst(o.mesh.position, 0x5fe0ff, 30, -state.speed * 0.7);
           } else {
+            state.timeLeft += RING_TIME_BONUS;
             state.combo++;
             const pts = 10 * Math.min(state.combo, 10);
             state.ringPts += pts;
-            popup(state.combo > 1 ? `+${pts}  x${state.combo}` : `+${pts}`, '#ffd34d');
+            popup(`${state.combo > 1 ? `+${pts} x${state.combo}` : `+${pts}`}  ⏱+${RING_TIME_BONUS}초`, '#ffd34d');
             tone(523 * Math.pow(1.06, Math.min(state.combo, 12)), 0.2, 'triangle', 0.15);
             burst(o.mesh.position, 0xffd34d, 30, -state.speed * 0.7);
           }
-        } else if (playing && !o.blue) {
+        } else if (playing && o.kind === 'gold') {
           state.combo = 0;
         }
       }
@@ -791,6 +908,8 @@ function update(dt) {
   // HUD
   if (playing) {
     ui.score.textContent = totalScore().toLocaleString();
+    ui.timer.textContent = state.timeLeft.toFixed(1);
+    ui.timer.classList.toggle('low', state.timeLeft <= 5);
     ui.dist.textContent = `${Math.floor(state.startZ - state.z).toLocaleString()} m`;
     ui.combo.textContent = state.combo > 1 ? `콤보 x${state.combo}` : '';
     ui.best.textContent = `최고 ${best.toLocaleString()}`;
