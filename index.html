@@ -9,7 +9,6 @@
     --ink: #17324d;
     --card: rgba(255, 255, 255, 0.82);
     --gold: #ffb800;
-    --blue: #2bb7f0;
     --red: #ff4d5e;
   }
   * { box-sizing: border-box; }
@@ -41,14 +40,7 @@
   #timer.low { color: var(--red); animation: pulse 0.5s ease-in-out infinite alternate; }
   @keyframes pulse { to { transform: scale(1.12); } }
 
-  #bottom {
-    left: 50%; bottom: 16px; transform: translateX(-50%);
-    width: min(360px, calc(100% - 32px));
-    display: flex; align-items: center; gap: 10px; font-size: 13px;
-  }
-  #boostBar { flex: 1; height: 10px; border-radius: 6px; background: rgba(23, 50, 77, 0.15); overflow: hidden; }
-  #boostFill { height: 100%; width: 100%; background: linear-gradient(90deg, #4fd8ff, #2b8cf0); border-radius: 6px; }
-  #speed { min-width: 64px; text-align: right; }
+  #bottom { left: 50%; bottom: 16px; transform: translateX(-50%); font-size: 13px; }
 
   #popups { position: absolute; left: 50%; top: 38%; }
   .popup {
@@ -88,14 +80,6 @@
     box-shadow: 0 6px 18px rgba(255, 130, 0, 0.4);
   }
   button.start:active { transform: scale(0.97); }
-
-  #boostBtn {
-    position: fixed; right: 18px; bottom: 70px; width: 76px; height: 76px; border-radius: 50%;
-    border: 0; font: inherit; font-weight: 800; color: #fff;
-    background: linear-gradient(135deg, #4fd8ff, #2b8cf0); box-shadow: 0 6px 18px rgba(30, 120, 220, 0.4);
-    display: none; touch-action: none;
-  }
-  @media (pointer: coarse) { #boostBtn.show { display: block; } }
 </style>
 </head>
 <body>
@@ -106,22 +90,17 @@
     <div id="combo"></div>
   </div>
   <div class="panel" id="timerPanel">
-    <div id="timer">30.0</div>
+    <div id="timer">10.0</div>
     <div class="sub">남은 시간</div>
   </div>
   <div class="panel" id="tr">
-    <div id="lives">♥♥♥</div>
+    <div id="lives">♥</div>
     <div class="sub" id="best">최고 0</div>
   </div>
-  <div class="panel" id="bottom">
-    <span>부스트</span>
-    <div id="boostBar"><div id="boostFill"></div></div>
-    <span id="speed">0 km/h</span>
-  </div>
+  <div class="panel" id="bottom"><span id="speed">0 km/h</span></div>
   <div id="popups"></div>
 </div>
 <div id="flash"></div>
-<button id="boostBtn">부스트</button>
 
 <div id="overlay">
   <div class="card" id="card"></div>
@@ -376,9 +355,8 @@ function burst(p, color, count, vz) {
 // ---------- 링 / 열기구 ----------
 const ringGeo = new THREE.TorusGeometry(5, 0.45, 10, 36);
 const goldMat = new THREE.MeshPhongMaterial({ color: 0xffc83d, emissive: 0xb07000, emissiveIntensity: 0.5, shininess: 120 });
-const blueMat = new THREE.MeshPhongMaterial({ color: 0x5fe0ff, emissive: 0x0b6fa8, emissiveIntensity: 0.6, shininess: 120 });
 const redMat = new THREE.MeshPhongMaterial({ color: 0xff3b3b, emissive: 0xa00010, emissiveIntensity: 0.7, shininess: 120 });
-const RING_MATS = { gold: goldMat, blue: blueMat, red: redMat };
+const RING_MATS = { gold: goldMat, red: redMat };
 const balloonGeo = new THREE.SphereGeometry(4, 18, 14);
 const balloonConeGeo = new THREE.ConeGeometry(2.6, 3.2, 18).rotateX(Math.PI).translate(0, -4.6, 0);
 const basketGeo = new THREE.BoxGeometry(1.8, 1.3, 1.8).translate(0, -7.6, 0);
@@ -410,21 +388,22 @@ function pickY(x, z) {
 
 let nextSpawnZ = -120;
 const difficulty = () => clamp(state.time / 120, 0, 1);
+// 빨간 링과 일반(황금) 링을 2:8 비율로 생성
+const randomRingKind = () => Math.random() < 0.2 ? 'red' : 'gold';
 function spawnAhead() {
   while (nextSpawnZ > state.z - 750) {
     const z = nextSpawnZ;
     const r = Math.random();
     if (r < 0.62) {
-      const kind = r < 0.40 ? 'gold' : r < 0.50 ? 'blue' : 'red';
       const x = rand(-50, 50);
-      spawnRing(x, pickY(x, z), z, kind);
+      spawnRing(x, pickY(x, z), z, randomRingKind());
     } else if (r < 0.78) {
       // 곡선을 따라 이어지는 링
       const x0 = rand(-40, 40), y0 = pickY(x0, z), dir = Math.random() < 0.5 ? -1 : 1, n = 5;
       for (let i = 0; i < n; i++) {
         const zz = z - i * 22, xx = x0 + Math.sin(i * 0.8) * 10 * dir;
         const yy = Math.max(y0 + Math.sin(i * 0.6) * 6, groundTop(xx, zz) + 10);
-        spawnRing(xx, yy, zz, 'gold');
+        spawnRing(xx, yy, zz, randomRingKind());
       }
       nextSpawnZ -= n * 22;
     } else {
@@ -541,15 +520,49 @@ function startBgm() {
   scheduleBgm();
 }
 function toggleMute() {
+  if (IS_MOBILE) return; // 모바일은 BGM 항상 출력
   bgm.muted = !bgm.muted;
   if (bgm.gain) bgm.gain.gain.setTargetAtTime(bgm.muted ? 0 : 1, audio.currentTime, 0.05);
 }
 
+// 모바일 BGM 강제 출력
+// - 브라우저는 사용자 터치 안에서만 소리를 허용하므로, 첫 터치(및 이후 터치)마다 오디오를 깨운다.
+// - iOS는 무음 스위치가 켜져 있으면 Web Audio를 막기 때문에, 재생(playback) 오디오 세션을 요청하고
+//   무음 <audio>를 반복 재생해 미디어 재생으로 취급받게 한다.
+const IS_MOBILE = matchMedia('(pointer: coarse)').matches || /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+let silentAudio = null;
+function silentWavUrl() {
+  const n = 4410, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+  const str = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  str(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); str(8, 'WAVE');
+  str(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, 44100, true); v.setUint32(28, 88200, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  str(36, 'data'); v.setUint32(40, n * 2, true);
+  return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+}
+function unlockMobileAudio() {
+  if (mode === 'paused') return;
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { /* 미지원 */ }
+  if (!silentAudio) {
+    silentAudio = new Audio(silentWavUrl());
+    silentAudio.loop = true;
+    silentAudio.setAttribute('playsinline', '');
+  }
+  if (silentAudio.paused) silentAudio.play().catch(() => {});
+  initAudio();
+  if (!audio) return;
+  if (audio.state !== 'running') audio.resume();
+  bgm.muted = false;
+  startBgm();
+}
+if (IS_MOBILE) {
+  for (const ev of ['touchend', 'pointerdown', 'click']) document.addEventListener(ev, unlockMobileAudio, { capture: true, passive: true });
+}
+
 // ---------- 입력 ----------
 const keys = new Set();
-let mouse = { x: 0, y: 0, active: false, down: false };
+let mouse = { x: 0, y: 0, active: false };
 let touch = { id: null, sx: 0, sy: 0, x: 0, y: 0 };
-let boostBtnHeld = false;
 
 addEventListener('keydown', e => {
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
@@ -574,20 +587,14 @@ canvas.addEventListener('pointermove', e => {
   }
 });
 canvas.addEventListener('pointerdown', e => {
-  if (e.pointerType === 'mouse') { mouse.down = true; return; }
+  if (e.pointerType === 'mouse') return;
   if (touch.id === null) { touch.id = e.pointerId; touch.sx = e.clientX; touch.sy = e.clientY; touch.x = touch.y = 0; }
 });
 const endPointer = e => {
-  if (e.pointerType === 'mouse') mouse.down = false;
   if (e.pointerId === touch.id) { touch.id = null; touch.x = touch.y = 0; }
 };
 canvas.addEventListener('pointerup', endPointer);
 canvas.addEventListener('pointercancel', endPointer);
-
-const boostBtn = document.getElementById('boostBtn');
-boostBtn.addEventListener('pointerdown', e => { e.preventDefault(); boostBtnHeld = true; });
-boostBtn.addEventListener('pointerup', () => boostBtnHeld = false);
-boostBtn.addEventListener('pointercancel', () => boostBtnHeld = false);
 
 function readInput() {
   const kx = (keys.has('ArrowRight') || keys.has('KeyD') ? 1 : 0) - (keys.has('ArrowLeft') || keys.has('KeyA') ? 1 : 0);
@@ -600,16 +607,15 @@ function readInput() {
     ix = clamp(dz(mouse.x) * 1.6, -1, 1);
     iy = clamp(dz(mouse.y) * 1.6, -1, 1);
   }
-  const boost = keys.has('Space') || keys.has('ShiftLeft') || keys.has('ShiftRight') || mouse.down || boostBtnHeld;
-  return { ix, iy, boost };
+  return { ix, iy };
 }
 
 // ---------- 게임 상태 ----------
 let mode = 'title'; // title | play | paused | over
-const TIME_LIMIT = 30, RING_TIME_BONUS = 2, RED_RING_PENALTY = 10;
+const TIME_LIMIT = 10, RING_TIME_BONUS = 0.5, RED_RING_PENALTY = 10, MAX_LIVES = 1;
 const state = {
   x: 0, y: 30, z: 0, vx: 0, vy: 0, speed: 45,
-  boost: 100, boosting: false, lives: 3, ringPts: 0, combo: 0,
+  lives: MAX_LIVES, ringPts: 0, combo: 0,
   invuln: 0, time: 0, timeLeft: TIME_LIMIT, startZ: 0, shake: 0,
 };
 let best = 0;
@@ -618,7 +624,7 @@ try { best = Number(localStorage.getItem('paperPlaneBest')) || 0; } catch { /* �
 const $ = id => document.getElementById(id);
 const ui = {
   score: $('score'), dist: $('dist'), timer: $('timer'), combo: $('combo'), lives: $('lives'), best: $('best'),
-  boostFill: $('boostFill'), speed: $('speed'), popups: $('popups'), flash: $('flash'),
+  speed: $('speed'), popups: $('popups'), flash: $('flash'),
   overlay: $('overlay'), card: $('card'), hud: $('hud'),
 };
 const totalScore = () => state.ringPts + Math.floor((state.startZ - state.z) / 10);
@@ -636,14 +642,13 @@ function popup(text, color) {
 function showTitle() {
   ui.card.innerHTML = `
     <h1>✈️ 종이비행기 하늘여행</h1>
-    <p>제한시간은 <b>30초</b>! 링을 통과할 때마다 <b>+2초</b>가 늘어나요.<br>열기구와 땅에 부딪히지 않게 조심하세요.</p>
+    <p>제한시간은 단 <b>${TIME_LIMIT}초</b>, 목숨은 <b>${MAX_LIVES}개</b>!<br>열기구와 땅에 부딪히면 바로 끝나요.</p>
     <div class="keys">
       <div><b>←</b><b>→</b><b>↑</b><b>↓</b> 또는 <b>WASD</b> / 마우스 위치로 조종</div>
-      <div><b>Space</b> / 마우스 클릭 &nbsp;부스트</div>
-      <div><b>P</b> 일시정지 &nbsp;·&nbsp; <b>M</b> 음악 끄기/켜기</div>
+      <div><b>P</b> 일시정지${IS_MOBILE ? '' : ' &nbsp;·&nbsp; <b>M</b> 음악 끄기/켜기'}</div>
       <div>모바일: 화면을 드래그해 조종</div>
-      <div>🟡 황금 링: 연속 통과 시 콤보 &nbsp; 🔵 파란 링: 부스트 충전</div>
-      <div>🔴 빨간 링: 함정! 통과하면 <b>-10초</b></div>
+      <div>🟡 황금 링: <b>+${RING_TIME_BONUS}초</b>, 연속 통과 시 콤보</div>
+      <div>🔴 빨간 링: 함정! 통과하면 <b>-${RED_RING_PENALTY}초</b></div>
     </div>
     <button class="start" id="startBtn">비행 시작</button>`;
   $('startBtn').onclick = startGame;
@@ -657,16 +662,15 @@ function startGame() {
   startBgm();
   clearObjects();
   Object.assign(state, {
-    x: 0, vx: 0, vy: 0, speed: 45, boost: 100, lives: 3, ringPts: 0, combo: 0,
+    x: 0, vx: 0, vy: 0, speed: 45, lives: MAX_LIVES, ringPts: 0, combo: 0,
     invuln: 1.5, time: 0, timeLeft: TIME_LIMIT, startZ: state.z, shake: 0,
   });
   state.y = Math.max(state.y, groundTop(state.x, state.z) + 25);
   nextSpawnZ = state.z - 150;
-  mouse.active = mouse.down = false; // 시작 버튼 위치로 조종되지 않도록
+  mouse.active = false; // 시작 버튼 위치로 조종되지 않도록
   mode = 'play';
   ui.overlay.classList.add('hidden');
   ui.hud.style.visibility = 'visible';
-  boostBtn.classList.add('show');
   updateLives();
 }
 
@@ -678,7 +682,6 @@ function gameOver(reason) {
     best = score;
     try { localStorage.setItem('paperPlaneBest', String(best)); } catch { /* 저장소 사용 불가 */ }
   }
-  boostBtn.classList.remove('show');
   tone(330, 0.5, 'triangle', 0.15, 110);
   ui.card.innerHTML = `
     <h1>${reason === 'time' ? '⏰ 시간 종료!' : '💥 추락!'}</h1>
@@ -705,7 +708,7 @@ function togglePause() {
 }
 document.addEventListener('visibilitychange', () => { if (document.hidden && mode === 'play') togglePause(); });
 
-function updateLives() { ui.lives.textContent = '♥'.repeat(state.lives) + '♡'.repeat(Math.max(0, 3 - state.lives)); }
+function updateLives() { ui.lives.textContent = '♥'.repeat(state.lives) + '♡'.repeat(Math.max(0, MAX_LIVES - state.lives)); }
 
 function damage() {
   if (state.invuln > 0) return;
@@ -730,7 +733,7 @@ function update(dt) {
     // 타이틀 화면 자동 비행
     const t = performance.now() / 1000;
     const target = groundTop(state.x, state.z - 40) + 30;
-    input = { ix: Math.sin(t * 0.45) * 0.5 - state.x / 120, iy: clamp((target - state.y) / 15, -1, 1), boost: false };
+    input = { ix: Math.sin(t * 0.45) * 0.5 - state.x / 120, iy: clamp((target - state.y) / 15, -1, 1) };
   }
 
   state.time += dt;
@@ -747,12 +750,9 @@ function update(dt) {
   state.vx += (input.ix * 36 - state.vx) * k;
   state.vy += (input.iy * 26 - state.vy) * k;
 
-  state.boosting = input.boost && state.boost > 0;
-  if (state.boosting) state.boost = Math.max(0, state.boost - 32 * dt);
-  else state.boost = Math.min(100, state.boost + 5 * dt);
 
   const base = playing ? Math.min(45 + state.time * 0.4, 95) : 45;
-  const targetSpeed = base * (state.boosting ? 1.7 : 1) - state.vy * 0.5;
+  const targetSpeed = base - state.vy * 0.5;
   state.speed += (targetSpeed - state.speed) * (1 - Math.exp(-dt * 1.6));
 
   const prevZ = state.z;
@@ -812,13 +812,6 @@ function update(dt) {
             ui.flash.style.transition = 'none';
             ui.flash.style.opacity = '0.3';
             requestAnimationFrame(() => { ui.flash.style.transition = 'opacity 0.5s'; ui.flash.style.opacity = '0'; });
-          } else if (o.kind === 'blue') {
-            state.timeLeft += RING_TIME_BONUS;
-            state.boost = Math.min(100, state.boost + 40);
-            state.ringPts += 5;
-            popup(`부스트 +40  ⏱+${RING_TIME_BONUS}초`, '#5fe0ff');
-            tone(660, 0.25, 'sine', 0.15, 1320);
-            burst(o.mesh.position, 0x5fe0ff, 30, -state.speed * 0.7);
           } else {
             state.timeLeft += RING_TIME_BONUS;
             state.combo++;
@@ -913,7 +906,6 @@ function update(dt) {
     ui.dist.textContent = `${Math.floor(state.startZ - state.z).toLocaleString()} m`;
     ui.combo.textContent = state.combo > 1 ? `콤보 x${state.combo}` : '';
     ui.best.textContent = `최고 ${best.toLocaleString()}`;
-    ui.boostFill.style.width = `${state.boost}%`;
     ui.speed.textContent = `${Math.round(state.speed * 1.2)} km/h`;
   }
 }
